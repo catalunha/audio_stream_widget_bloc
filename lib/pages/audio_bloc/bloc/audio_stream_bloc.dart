@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:developer';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:bloc_concurrency/bloc_concurrency.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'package:audio_stream_widget_bloc/pages/audio_bloc/bloc/audio_stream_event.dart';
@@ -19,10 +20,13 @@ class AudioStreamBloc extends Bloc<AudioStreamEvent, AudioStreamState> {
       'constructor',
       name: runtimeType.toString(),
     );
-    on<AudioStreamEventBibleStart>(_onAudioStreamEventBibleStart);
-    on<AudioStreamEventPlay>(_onAudioStreamEventPlay);
+    on<AudioStreamEventBibleStart>(_onAudioStreamEventBibleStart,
+        transformer: concurrent());
+    on<AudioStreamEventPlay>(_onAudioStreamEventPlay,
+        transformer: concurrent());
     on<AudioStreamEventPause>(_onAudioStreamEventPause);
     on<AudioStreamEventStop>(_onAudioStreamEventStop);
+    on<AudioStreamEventSeek>(_onAudioStreamEventSeek);
 
     start();
   }
@@ -31,52 +35,11 @@ class AudioStreamBloc extends Bloc<AudioStreamEvent, AudioStreamState> {
       'start',
       name: runtimeType.toString(),
     );
-    await state.audioPlayer
-        ?.getCurrentPosition()
-        .then((value) => emitSafe(state.copyWith(position: value)));
-    await state.audioPlayer
-        ?.getDuration()
-        .then((value) => emitSafe(state.copyWith(duration: value)));
-    startStreams();
-
     add(AudioStreamEventBibleStart());
-  }
-
-  late final StreamSubscription? _durationSubscription;
-  late final StreamSubscription? _positionSubscription;
-  late final StreamSubscription? _playerCompleteSubscription;
-  late final StreamSubscription? _playerStateChangeSubscription;
-
-  void startStreams() {
-    log(
-      'startStreams',
-      name: runtimeType.toString(),
-    );
-    _durationSubscription =
-        state.audioPlayer!.onDurationChanged.listen((value) {
-      log('duration: $value');
-      emitSafe(state.copyWith(duration: value));
-    });
-    _positionSubscription =
-        state.audioPlayer!.onPositionChanged.listen((value) {
-      log('position: $value');
-      emitSafe(state.copyWith(position: value));
-    });
-    _playerCompleteSubscription = state.audioPlayer!.onPlayerComplete
-        .listen((_) => emitSafe(state.copyWith(
-              playerState: PlayerState.stopped,
-              position: Duration.zero,
-            )));
-    _playerStateChangeSubscription = state.audioPlayer!.onPlayerStateChanged
-        .listen((value) => emitSafe(state.copyWith(playerState: value)));
   }
 
   @override
   Future<void> close() {
-    _durationSubscription?.cancel();
-    _positionSubscription?.cancel();
-    _playerCompleteSubscription?.cancel();
-    _playerStateChangeSubscription?.cancel();
     state.audioPlayer?.dispose();
     return super.close();
   }
@@ -86,7 +49,7 @@ class AudioStreamBloc extends Bloc<AudioStreamEvent, AudioStreamState> {
     Emitter<AudioStreamState> emit,
   ) async {
     log(
-      'bibleRecentGet()',
+      'AudioStreamEventBibleStart()',
       name: runtimeType.toString(),
     );
     await state.audioPlayer?.dispose();
@@ -101,44 +64,69 @@ class AudioStreamBloc extends Bloc<AudioStreamEvent, AudioStreamState> {
 
       await audioPlayer.setSource(AssetSource('audios/audio1.mp3'));
       await audioPlayer.setReleaseMode(ReleaseMode.stop);
-      await audioPlayer.getDuration();
-      await audioPlayer.getCurrentPosition();
-
-      emitSafe(
-        state.copyWith(
-          status: StateStatus.data,
-          audioPlayer: audioPlayer,
-        ),
+      Duration? duration = await audioPlayer.getDuration();
+      Duration? position = await audioPlayer.getCurrentPosition();
+      // await emit.forEach<void>(
+      //   state.audioPlayer!.onPlayerComplete,
+      //   onData: (_) => state.copyWith(
+      //       position: Duration.zero, playerState: PlayerState.stopped),
+      // );
+      emitSafe(state.copyWith(
+        status: StateStatus.data,
+        audioPlayer: audioPlayer,
+        position: position,
+        duration: duration,
+      ));
+      log(
+        'AudioStreamEventBibleStart. end',
+        name: runtimeType.toString(),
       );
     } catch (e) {
       log(
-        'bibleRecentGet. Error',
+        'AudioStreamEventBibleStart. Error',
         name: runtimeType.toString(),
       );
 
       emitSafe(
         state.copyWith(
           status: StateStatus.error,
-          message: 'Error in VersesCubit.bibleRecentGet',
+          message: 'Error in AudioStreamEventBibleStart',
         ),
       );
     }
+  }
+
+  FutureOr<void> _onAudioStreamEventSeek(
+    AudioStreamEventSeek event,
+    Emitter<AudioStreamState> emit,
+  ) async {
+    log('seeeeek');
+    await state.audioPlayer!.seek(event.duration!);
   }
 
   FutureOr<void> _onAudioStreamEventPlay(
     AudioStreamEventPlay event,
     Emitter<AudioStreamState> emit,
   ) async {
-    state.audioPlayer!.resume();
+    log('playyyyyyyyyyyyyyyyy');
+
+    await state.audioPlayer!.resume();
     emitSafe(state.copyWith(playerState: PlayerState.playing));
+
+    await emit.forEach<Duration>(
+      state.audioPlayer!.onPositionChanged,
+      onData: (value) => state.copyWith(position: value),
+    );
   }
 
   FutureOr<void> _onAudioStreamEventPause(
     AudioStreamEventPause event,
     Emitter<AudioStreamState> emit,
   ) async {
-    state.audioPlayer!.pause();
+    log('paaaaaaaaaaaaaaaaaaause');
+    await state.audioPlayer!.pause();
     emitSafe(state.copyWith(playerState: PlayerState.paused));
+    log('paaaaaaaaaaaaaaaaaaause.....${state.playerState}');
   }
 
   FutureOr<void> _onAudioStreamEventStop(

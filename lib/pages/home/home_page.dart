@@ -22,11 +22,14 @@ class HomePage extends StatelessWidget {
           children: [
             ElevatedButton(
               onPressed: () async {
-                final player = AudioPlayer();
-                await player.setSource(AssetSource('audios/audio1.mp3'));
+                final audioPlayer = AudioPlayer();
+                await audioPlayer.setSource(AssetSource('audios/audio1.mp3'));
+                await audioPlayer.setReleaseMode(ReleaseMode.stop);
+                await audioPlayer.getDuration();
+                await audioPlayer.getCurrentPosition();
                 Navigator.push(context, MaterialPageRoute(
                   builder: (context) {
-                    return AudioWidgetPage(audioPlayer: player);
+                    return AudioWidgetPage(audioPlayer: audioPlayer);
                   },
                 ));
               },
